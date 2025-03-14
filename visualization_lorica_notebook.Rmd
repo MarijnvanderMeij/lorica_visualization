@@ -1,0 +1,25 @@
+---
+title: "Visualization Lorica output"
+output: html_notebook
+---
+
+## Load functions and libraries, read input dtm
+```{r}
+source("visualization_lorica_functions.R")
+
+dtm_0 = rast("test_data/DEM_2D.asc")
+```
+
+## Read Lorica output
+```{r}
+read_lorica_output(dtm_0 = dtm_0, directory = "test_data", scenario_name = "test")
+```
+## Soil visualizations
+Depth plot of a soil property
+```{r}
+depth_plot(test_soils, 1,1,1200, "f_OM")
+```
+
+
+
+## Raster visualizations
