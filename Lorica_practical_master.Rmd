@@ -1,0 +1,764 @@
+---
+title: "Practical Lorica"
+subtitle: "Soil-landscape evolution modelling"
+author: ""
+date: "2024-11-21"
+output: html_notebook
+---
+
+# Introduction
+This R notebook contains the exercises belonging to the practical on Soil-Landscape Evolution Modelling. This practical is part of the course Landscape Dynamics and the Soil Carbon Cycle of the Institute of Geography from the University of Cologne and is made by W.M. van der Meij (m.vandermeij[at]uni-koeln.de). This practical is designed to let the students get familiar with soil-landscape evolution modelling using the model Lorica (Temme & Vanwalleghem, 2016), and analyzing and visualizing the results in R.  
+
+The practical comes with the following files and scripts:
+
+- Short Lorica manual (word file)
+- The Lorica model as executable file with the ICBM as SOC module (LORICA_ICBM.exe)
+- A 0-dimensional DTM with only one row and column for simulations of vertical soil processes (DEM_0D.asc)
+- A 1-dimensional DTM showing a curved hillslope (DEM_1D_gaussian.asc)
+- A runfile that contains pre-set parameters for the simulations (runfile.xml)
+- R script with functions to analyze the model output (VisualizationLORICAoutput_functions_practical.R)
+
+This practical consists of three parts:
+
+1. Simulating soil organic carbon dynamics in a soil profile
+2. Simulating erosion along a curving hillslope
+3. Analyzing SOC dynamics in eroding landscapes
+
+For each part, you will run the simulations in Lorica, visualize the results with the provided functions, interpret the results and compare the results from different model runs. When you make the exercises, explain **why and how** you are using R code and functions, and also **provide answers** to the questions if requested. The questions are about the interpretation of the model results. They are posted as bullet points. You can provide the answers on the row of dots (...) after the question. The locations where you have to add or adjust code in the code chunks are indicated with dots as well. Good luck!
+
+**Important**: For the exercises in this file, you will have to run several scenarios, with different parameters, settings and processes. Make sure that you store the parameters from each model run in a different .xml file and that you change the name of the output folder as well. These will otherwise be overwritten by your next simulations. 
+
+# Preparation
+First, load the required libraries. You can install them with `install.packages()`, when you haven't already.
+```{r}
+library(tidyverse)
+library(terra) # terra is a library to work with raster data
+```
+
+Then, we need to load the pre-made R functions to analyze the Lorica output. These are provided in the file VisualizationLORICAoutput_functions_practical.R. The function `source()` loads these functions into your current project, similar to loading a library and its functions.
+```{r, eval = FALSE}
+# Load the R functions from the Visualization LORICA output_functions.R. Make sure that this file is stored in the same location as this notebook.  
+source('VisualizationLORICAoutput_functions_practical_v3.R')
+```
+If you now have a look at your environment, you can see the functions that became available. 
+
+# Part 1: Soil organic matter dynamics
+In this exercise, you will work with soil organic matter (SOM) simulations. Lorica uses the ICBM model for its SOM cycle, similar to the practical from last week. The main difference here is that the model is not 0-dimensional (only one stock for the entire soil), but that it is one-dimensional. This means that there are different rates of input and decomposition for different depths in the soil. In this part of the model, you will practice with the depth-dependency of the SOM model and calibrate the process using a provided reference value.
+
+## 1.1. SOM dynamics with depth and in time
+
+### 1.1.1. Run the simulations
+It's time for your first simulation with Lorica. Start the model using the executable (LORICA_ICBM.exe). Click on runfile -> open and select the file `runfile.xml`. This is the standard runfile. We need to make some changes to prepare the model for our simulations.
+
+1. First, click on runfile -> save as and store the runfile under a different name, for example `runfile_0D_SOM.xml`. Otherwise, you will overwrite the other runfile. 
+2. Select the processes for this simulation. As we are only interested in the SOM cycle, select the process `Carbon cycle` under the tab `Soil forming processes` and de-select all other processes in the tabs `Geomorphic processes` and `Soil forming processes`. The tabs `Geochronological tracers` and `Hydrological parameters` are not relevant for this practical. 
+3. Under the tab `Inputs`, click on the white area next to `Digital Elevation Model [m]` and select the file "DEM_0D.asc". Have a look at the other parameters. You don't have to change these now. 
+4. Under the tab `Run`, check that the simulations take 200 years, and under the tab `Output`, that the output is written every 10 years and when the simulations are ready. 
+5. Now you're ready for the simulations. Click on runfile -> to save the runfile and click on `Start`.
+6. Check in the folder where your practical files are stored. There should be a new folder with the same name as your input DEM (`DEM_0D`). Rename this folder to `DEM_0D_SOM`.
+
+
+### 1.1.2. Analyze the output
+Now that the simulations with Lorica are completed, we will switch to R for the analysis. First, we need to load the simulation results into R. For that, we will use the functions `read_soils()` and `read_rasters`. These functions require the `directory` where the data is stored (`DEM_0D_part1`) and a `scenario_name` to add to the objects that contain the model output. This name is important to locate your previous simulations later on. This scenario name should describe the simulations that you did, for example `0D_SOM`. 
+
+```{r}
+dtm_0 = rast("DEM_0D.asc") # Load the input DEM
+
+read_rasters(directory = "DEM_0D_SOM/", scenario_name = "0D_SOM")
+
+read_soils(directory = "DEM_0D_SOM/", scenario_name = "0D_SOM")
+```
+These functions read the model output and place it in objects in your Environment. You can see that there are new objects in your environment: `dtm_0D_SOM`, `dz_soil_0D_SOM`, `soils_0D_SOM`, `years_0D_SOM` and `output_descriptions`. These objects contain the model results. With the unique name `0D_SOM` you know that they belong to the same simulation.
+
+Q1.1. Have a look at the structure and the variables in `soils_0D_SOM`. How many rows and columns are there? What are the different variables and what data type are they?
+```{r}
+soils_0D_SOM
+```
+
+...
+
+Q1.2. Which variable do we need for our SOM analysis? Have a look at the file `Description Lorica output.xlsx` to help you with this question. 
+
+...
+
+Now you will make a depth plot of the organic matter fraction, using the function `depth_plot()`. This function requires several arguments:
+
+- `soils` requires the object that contains all the soil information
+- `row_plot`, `col_plot` and  `t_plot` are the row, column and time step of the depth plot that you want to make
+- `variablename` is the name of the variable that you want to plot
+
+Notice that the row and column are zero. The coding language of Lorica, called C#, starts counting at 0, where R starts counting at 1. When you want to index the first element in a vector, in R that would be `vector[1]`. In C#, this will be `vector[0]`. **Keep this in mind when you have to select row, column or layer numbers for your plots!**
+
+```{r}
+depth_plot(soils = soils_0D_SOM,
+           row_plot = 0, 
+           col_plot = 0, 
+           t_plot = 200, 
+           variablename = "f_OM")
+```
+
+Q1.3. Describe the depth trend of the organic matter fraction in this soil. Does the depth trend meet your expectations? Are the modelled values realistic? 
+
+...
+
+Q1.4. Make additional depth plots for time steps 10 and 100. What are the differences in the SOM-depth profiles?
+
+...
+
+The depth plot shows the organic matter fraction at one moment in time. The model simulates development of soils over time, so this temporal development can also be visualized. For that, we use the function `profile_development()` in the following code chunk. This function requires the same parameters as `depth_plot()`, but instead of one year it requires a vector of years: `years_plot`. We use the object `years` to fill this argument. `years` is a vector with the available years in the model output, and has been created when the model data were loaded into R. Run the function and have a look at the results.  
+
+```{r}
+profile_development(soils = soils_0D_SOM, 
+                    row_plot = 0, 
+                    col_plot = 0, 
+                    years_plot = years_0D_SOM, 
+                    variablename = "f_OM",
+                    max_depth = 1)
+```
+```{r}
+soils_0D_SOM %>%
+  filter(nlayer == 0)
+```
+
+The graph shows the temporal development of the organic matter fraction over the entire soil depth. Each column in the graph is a soil profile at one of the time steps of the model. Each new column represents a new year in the output. The Y axis shows the absolute elevation of each soil layer, which is based on the input DEM. 
+
+Q1.5. Describe the temporal development of the organic matter fraction. Which parts of the profile show the largest changes?
+
+..
+
+Q1.6. Next to the organic matter fraction, something else is changing in the soil profiles. What is this and why is it changing?
+
+...
+
+## 1.2. Calibrate the SOM cycle
+So far we have run the model with the provided parameters from the ICBM model. We saw that this model produces relatively high soil organic matter fractions in the topsoil. The SOM stocks are not yet in equilibrium after 200 years of simulation. This takes a much longer time. In this part, we will first run the model to reach a steady-state SOM stock. A steady state means that the annual inputs are equal to the decomposition, leading to constant SOM stocks over time. After that, we will calibrate the model on a SOM stock from a field setting by changing the SOM input.
+
+### 1.2.1. Run for long timescales
+Open `LORICA_ICBM.exe` and load the runfile `runfile_0D_SOM.xml`. Go to the tab `Run` and change the number of years in the run to 10000. Then go to the tab `Outputs` and set the frequency of the output to every 100 years. Save the runfile under a new name (e.g. `runfile_0D_SOM_10ka.xml`) and run the model. The model takes a bit longer to run due to the extra timesteps. After the run, change the name of the output folder to `DEM_0D_SOM_10ka`.
+
+Now read the data into R.
+```{r}
+read_rasters(directory = "DEM_0D_SOM_10ka/", scenario_name = "0D_SOM_10ka")
+read_soils(directory = "DEM_0D_SOM_10ka/", scenario_name = "0D_SOM_10ka")
+```
+
+Q1.7. Have a look at the objects `years_0D_SOM` and `years_0D_SOM_10ka`. What is the difference? What is the reason for this?
+
+...
+
+Plot the profile development of the organic matter fraction for the new simulations, using the code that was provided earlier. Change the inputs of the function to the objects from the new model run.  
+
+```{r}
+profile_development(soils = soils_0D_SOM_10ka, 
+                    row_plot = 0, 
+                    col_plot = 0, 
+                    years_plot = years_0D_SOM_10ka, 
+                    variablename = "f_OM")
+```
+
+Q1.8. Describe the development of the organic matter fraction in these longer simulations. What are the differences with the previous simulations? Is a steady state reached for the organic matter fractions?
+
+...
+
+A steady state means that the SOM stocks remain stable over time. We can derive this from the graph above, where the colours seem to remain constant at the end of the simulations. We can also determine this quantitatively, by calculating the SOM stocks for each time step. The SOM stock is the total amount of organic matter (young and old) for the entire profile. The unit for SOM stocks is kilogram per square meter. The simulated profile has a surface area of 1 m^2^, so the sum of the organic matter pools is already in the unit of kg m^2^.  
+
+The following code calculates the SOM stocks. We group the soil data per row, column and timestep and then calculate the sum of both SOM pools. Notice that we do not group by soil layer, as we want to know the SOM stock of the total soil profile.
+
+```{r}
+SOM_stocks = soils_0D_SOM_10ka %>% # start with soil properties from the new model output 
+  group_by(row, col, t) %>% # and then, we group by row, column and timestep
+  summarise(SOM_stock_kg = sum(YOM_kg, OOM_kg)) # And then we calculate the sum of the young and old organic pools.
+```
+
+Now we can visualize the temporal trends. Using the object `SOM_stocks`, make a line plot with time on the X axis and the SOM stocks on the Y axis. Give the axes proper labels.
+
+```{r}
+ggplot(SOM_stocks, aes(x = t, y = SOM_stock_kg)) + 
+  geom_line() + 
+  labs(x = "time [a]", y = "SOM stock [kg/m2]")
+```
+
+Q1.9. Describe the temporal trend in the SOM stocks. Did the stocks reach a steady state in the simulations?
+
+...
+
+The simulations did not reach a steady state, because the subsoil SOM cycling is much slower than the topsoil SOM cycling. Therefore, the subsoil SOM stocks are not yet in equilibrium after 10,000 years, which affects the total SOM stocks. 
+
+Do the same analysis, but in this case only for the topsoil, using `filter(midthick_m < 0.3)`. This line filters out layers where the midpoint is deeper than 30 cm. Copy the code from the previous code chunks, place the `filter()` function at the correct position in the code and visualize the evolution of topsoil SOM stocks.
+
+```{r}
+SOM_stocks_topsoil = soils_0D_SOM_10ka %>% # start with soils properties from the new model output 
+  dplyr::filter(midthick_m < 0.3) %>%
+  group_by(row, col, t) %>% # and then, we group by row, column and timestep
+  summarise(SOM_stock_kg = sum(YOM_kg, OOM_kg)) # And then we calculate the sum of the young and old organic pools.
+
+ggplot(SOM_stocks_topsoil, aes(x = t, y = SOM_stock_kg)) + 
+  geom_line() + 
+  labs(x = "time [a]", y = "SOM stock [kg/m2]")
+```
+
+Q1.10. If we only consider the topsoil SOM stocks, do the simulations reach a steady state? After how many years?
+
+...
+
+Q1.11. How large is the steady-state topsoil SOM stock in the simulations? 
+
+...
+
+
+If we look in the literature, we find a large range of potential values for the SOM stocks. For example, [Barré et al. (2017)](https://doi.org/10.1016/j.geoderma.2016.09.029) report a SOC stock of 62 ton / ha for topsoils in loess soils under forest vegetation. Note that this values has a different unit than the values simulated in Lorica (kg/m^2^ versus ton/ha) and the type of stock is different (SOC vs. SOM). 
+
+Q1.12. Recalculate the value from Barré et al. to a SOM stock with the same unit as the values from Lorica. Recall from the lecture about the SOM cycle that SOC is 58% of SOM.
+```{r}
+res_SOC = 62 # ton ha-1
+ton_ha_to_kg_m2 = 1 * 1000 / 10000 # 1 kg = 1000 tons, 1 m2 = 10000 ha
+ref_SOM = res_SOC * ton_ha_to_kg_m2 / .58
+```
+
+Now we will calibrate the SOM cycle in Lorica using our new reference value. We will do this by changing the SOM input into the soil (`potential organic matter input [kg/m2/y]`). Take the following steps:
+
+1. Start LORICA_ICBM.exe and load the runfile from the previous simulation
+2. Change the value of the SOM input (higher or lower) and run the model
+3. Calculate the SOM stocks in R and compare the new value to the reference value
+4. Run at least five simulations and try to approach the reference value as close as possible
+
+Q1.13. What input parameter produced the simulated SOM stocks that most closely matched the reference value?
+
+...
+
+```{r}
+# Table with input SOM and resulting topsoil SOM stocks
+cal_SOM = tibble(input_SOM = c(.5,.4,.3,.2,.1,.15,.12,.125,.126,.127,.1265),
+                 SOM_stock = c(47.3,36.6,26.6,17.2,8.4,12.8,10.1,10.56,10.64,10.73,10.69)) 
+
+# Best value: input = 0.1265. SOM stock = 10.69
+p1 = ggplot(cal_SOM, aes(x = input_SOM,y=SOM_stock, color = "Calibration curve")) + 
+  geom_line() + 
+  geom_hline(aes(yintercept = ref_SOM, color = "Reference value")) + 
+  labs(x = "input SOM [kg/m2/a]", y = "Simulated SOM stocks [kg/m2",  colour = "SOM stock")
+
+p1
+```
+
+
+```{r}
+# Table with input SOM and resulting topsoil SOM stocks
+cal_SOM = tibble(input_SOM = c(.5,.4,.3,.2,.1,.15,.12,.125,.126,.127,.1265),
+                 SOM_stock = c(47.3,36.6,26.6,17.2,8.4,12.8,10.1,10.56,10.64,10.73,10.69)) %>%
+  mutate(rmse = sqrt((SOM_stock - ref_SOM)^2),
+         me = mean(SOM_stock - ref_SOM))
+
+# Best value: input = 0.1265. SOM stock = 10.69
+p1 = ggplot(cal_SOM, aes(x = input_SOM,y=SOM_stock, color = "Calibration curve")) + 
+  geom_line() + 
+  geom_hline(aes(yintercept = ref_SOM, color = "Reference value")) + 
+  geom_line(aes(y = rmse, colour = "RMSE")) + 
+  labs(x = "input SOM [kg/m2/a]", y = "Simulated SOM stocks [kg/m2",  colour = "SOM stock")
+
+p2 = ggplot(cal_SOM, aes(x = input_SOM, y = rmse)) + 
+  geom_line() + 
+  labs(x = "input SOM [kg/m2/a]", y = "RMSE")
+p2
+library(ggpubr)
+ggarrange(p1,p2)
+```
+
+Q1.14. Do you think this is a good way to calibrate a process in the model? If not, why is that and what would you do different?
+
+... Only calibrated on input, not on decay constants and humification fraction. However, more data needed for that (time series of SOM, flux measurements, depth information)
+
+
+# Part 2: tillage erosion
+In this part we will look at the effect of tillage erosion on landscape change. You will first simulate development on a 1-dimensional DEM, which means that there is one row and multiple columns in the DEM. Then, you will simulate a two-dimensional DEM, with 40 rows and 40 layers.
+
+## 2.1. 1-dimensional DEM
+For this simulation we will use the file `DEM_1D_gaussian.asc`. We will first load this file into R and have a look at this elevation transect. 
+
+```{r}
+source("VisualizationLORICAoutput_functions_practical_v3.R")
+
+# Read the input DEM
+dtm_0 = rast("DEM_1D_gaussian.asc") 
+
+# Plot DEM
+plot(dtm_0, main = "Elevation map")
+```
+This plot of the elevation map is not very informative, as there is a big difference in the number of rows (1) and the number of columns (110). This leads to a very narrow DEM with an unreadable legend. In this case it makes sense to plot an elevation line instead of the elevation map. We will use base R functions to plot this elevation transect.
+
+```{r}
+plot(x = dtm_0[],  # We plot the values in dtm_0, which are extracted from the raster object with the square brackets []
+     type='l',     # The plot type is a line plot
+     xlab = "Distance [m]",  # X axis label
+     ylab = "Elevation [m]") # Y axis label
+```
+This graph shows more useful information regarding the elevations stored in the raster object. The elevation transect shows a curving hillslope with first an increase in slope, followed by a decrease in slope.
+
+Q2.1. What parts of the hillslope would erode due to tillage, and which parts would receive sediments? 
+
+...
+
+Let's test your hypothesis from Q2.1. Take the following steps to run the simulations.
+
+- Open `runfile.xml`
+- Activate `tillage` and deactivate all other processes 
+- Set the tillage depth to 0.25 meter
+- Set the tillage constant to 0.5
+- Use `DEM_1D_gaussian.asc` as input DEM
+- Set the runtime to 100 years and write output every 10 years
+- Save the runfile under `runfile_1D_tillage.xml`
+- Start the simulations
+- Rename the model output folder to `DEM_1D_tillage`
+
+Q2.2. The simulations for tillage take longer than for SOM dynamics in the previous part, even though the runtime is shorter. What could be the reason for this?
+
+...
+
+The analysis of spatial data requires different functions than the profile data from last week. I provided a new version of the analysis functions on ILIAS. Delete the old file with the analysis functions, download the new file from ILIAS (`VisualizationLORICAoutput_functions_practical_v2.R`) and load it into R.
+
+```{r}
+source("VisualizationLORICAoutput_functions_practical_v3.R")
+```
+
+Load the output rasters and soil information into R using the functions below. Give the output a proper `scenario_name`.
+
+```{r}
+read_rasters(directory = "DEM_1D_tillage/", scenario_name = "1D_tillage")
+read_soils(directory = "DEM_1D_tillage/", scenario_name = "1D_tillage")
+```
+We will use some new functions to visualize the model output. The first one shows elevation is changing through the simulations along a transect. This function is called `elevation_transect_development()`. The code chunk below shows how this code works for the DEM of the landscape throughout the simulations.  
+
+```{r}
+elevation_transect_development(rasterstack = dtm_1D_tillage, # Object that stores the raster layers to visualize
+                               years = years_1D_tillage,     # Object that stores the years to visualize
+                               rows = 0,                     # Row indices of the transect, note that it starts from 0
+                               cols = 0:110,                 # Column indices of the transect, note that it starts from 0
+                               ylab = "Elevation [m]")       # Label that describes the information displayed on the Y axis
+```
+This graph show how the elevation of the transect is changing throughout the simulations. The changes in elevation are relatively small in comparison to the absolute elevation. Therefore, it would be more useful to visualize elevation changes instead of the absolute elevation.
+
+Copy the code from the code chunk above and plot the elevation changes by tillage. These are stored in the object `tillage_1D_tillage`, where the first part (tillage) refers to the process.
+
+```{r}
+elevation_transect_development(rasterstack = tillage_1D_tillage,          # Object that stores the raster layers to visualize
+                               years = years_1D_tillage,                  # Object that stores the years to visualize
+                               rows = 0,                                  # Row indices of the transect, note that it starts from 0
+                               cols = 0:110,                              # Column indices of the transect, note that it starts from 0
+                               ylab = "Elevation change by tillage [m]")  # Label that describes the information displayed on the Y axis
+```
+Q2.3. Describe the simulated elevation changes. Which parts of the hillslope erode and which parts receive sediments? Does this match with your hypothesis from Q2.1.?
+
+...
+
+Now that we know that the model is running well, let's try to change some parameters and see how the results are affected. 
+
+Q2.4. How would the model results be affected by an increase or decrease of the tillage constant? 
+
+...
+
+Start a new run of Lorica and run two scenarios with tillage constants of 0.5 and 1.5. Load them into R using the functions provided above and plot the elevation changes due to tillage through time. 
+
+```{r}
+
+```
+
+Q2.5. Describe how the model results have been affected by the differences in tillage constants. Did this match your expectations? 
+
+...
+
+
+## 2.2. 2-dimensional DEM
+Now we will run our simulations on a 2-dimensional DEM. This DEM has 40 rows and columns. We start as before: load the raster into R and plot the elevation.
+```{r}
+# Read the input DEM
+dtm_0 = rast("DEM_2D.asc") 
+
+# Plot DEM
+plot(dtm_0, main = "Elevation map")
+```
+Now that we have a 2-dimensional DEM, it makes more sense to visualize it with a map. 
+
+Q2.6. Describe the elevation pattern of the DEM. What are the elevation differences? How many high and low spots are there?
+
+...
+
+We can also visualize an elevation transect along one row or column. This requires a few more steps, as we need to specify which row or column we want to show on the transect. The code below extracts elevation information for row 20 (`dtm_0[20,]`). The output of this extraction is a data frame. The next step extracts the first column of this data frame and stores it in a vector (`[,1]`). This vector is stored in the object `elevation`. To calculate the distances belonging to each elevation point, we first need to know the cell size of the DEM. We extract this with the function `res()` and select the first value. Finally, we combine the vectors of elevation and distance in a data frame and plot the results. 
+
+```{r}
+elevation = dtm_0[20, ][ ,1]           # Extract the elevation values for row 20. Then, select the first column of the output
+dx = res(dtm_0)[1]                     # Extract the cell size from the raster layer
+distance = c(1:length(elevation)) * dx # Calculate the distances for each elevation 
+
+elev_dist = tibble(elevation, distance)
+
+ggplot(elev_dist, aes(x = distance, y = elevation)) + 
+  geom_line() + 
+  labs(x = "Distance [m]", y = "Elevation [m]") + 
+  theme_bw()
+```
+Q2.7. Describe the elevation transect from row 20. Desribe this transect with transects from five other rows or columns. What do the transects have in common? 
+
+...
+
+Let's run the model with the two-dimensional DEM
+
+- Open Lorica and load the `runfile_1D_tillage`
+- Change the input DEM to `DEM_2D.asc`
+- Save the runfile under `runfile_2D_tillage`
+- Run the simulations. Note that these will take some more time, due to the larger input DEM
+- Rename the output folder `DEM_2D_tillage`
+- Load the model results into R
+
+```{r}
+read_rasters(directory = "DEM_2D_tillage", scenario_name = "2D_tillage")
+read_soils(directory = "DEM_2D_tillage", scenario_name = "2D_tillage")
+```
+
+Let's have a look at the elevation changes due to tillage. Just as before, we start with the function `elevation_transect_development()` and use row 20 to visualize.
+
+```{r}
+elevation_transect_development(rasterstack = tillage_2D_tillage, 
+                               years_plot = years_2D_tillage, 
+                               rows = 19,
+                               cols = 0:39,
+                               ylab = "Elevation change by tillage [m]")
+
+elevation_transect_development(rasterstack = dtm_2D_tillage, 
+                               years_plot = years_2D_tillage, 
+                               rows = 19,
+                               cols = 0:39,
+                               ylab = "Elevation  [m]")
+
+```
+Q2.8. Describe the elevation changes due to tillage in row 20 of the simulated DEM. What are the minimum and maximum rates of landscape change? How does the elevation increase or decrease compared to the elevation transect visualized before? 
+
+...
+
+Q2.9. Plot the same transect for `dtm_2D_tillage` to look at changes in elevation. Do the erosion/deposition patterns match the changes in elevation?
+
+...
+
+We can also visualize the maps of elevation change. For this, you can use the function `plot_raster_stack()`. This function returns plots of raster layers inside a raster stack, such as `tillage_2D_tillage`, with a shared legend.
+
+```{r}
+plot_raster_stack(tillage_2D_tillage)
+```
+Q2.9. Describe how the erosion and deposition patterns are changing through the simulations? What are the magnitudes? Do the patterns of erosion and deposition change through time?
+
+...
+
+
+# Part 3: tillage and the soil carbon cycle
+
+Now that we have an idea about the dynamics of SOM cycling and tillage erosion in landscapes of different dimensions, it's time to combine the two processes.  
+
+- Start a new version of Lorica and load `runfile.xml`
+- Select tillage erosion, set the tillage constant to 0.5 and the plough depth to 0.25
+- Select Carbon cycle and use the following parameters
+  - Potential input: 0.13 
+  - humification fraction: 0.13
+  - decomposition young: 0.8
+  - decomposition old: 0.006
+  - depth limitation rates and depth decay constants: 8
+- Deselect all other processes
+- Use `DEM_2D` as input
+- Set the runtime to **300** years with output every 10 years
+- Save the runfile under `runfile_2D_tillage_SOM`
+- Run the model and change the name of the output folder to `DEM_2D_tillage_SOM`
+
+Load the model output into R
+```{r}
+source("VisualizationLORICAoutput_functions_practical_v3.R")
+dtm_0 = rast("DEM_2D.asc")
+read_rasters(directory = "DEM_2D_tillage_SOM/", scenario_name = "2D_tillage_SOM")
+read_soils(directory = "DEM_2D_tillage_SOM/", scenario_name = "2D_tillage_SOM")
+```
+
+The information that the model provides increases with the dimensions of the simulated landscape and with the number of simulated processes. Today,, we will make visualizations in the form of maps, transects and profile development. We will also practice with quantitative interpretation of the data, by building a linear regression model.  
+
+## 3.1. Maps of model output
+First, let's have a look at the map of total erosion. The function below selects one of the raster layers from the raster stacks and makes a plot. In this case, we select year 300, which is the final year of the simulations. 
+
+```{r}
+plot_raster_layer(rasterstack = tillage_2D_tillage_SOM,         # specify rasterstack to take the raster layer from
+                   year_of_plot = 300,                          # specify for which year you want to visualize the output
+                   years_in_rasterstack = years_2D_tillage_SOM) # provide the vector which years of output in the raster stack
+```
+Q3.1. Describe the tillage erosion pattern. Are the elevation changes from these simulations different from the simulations in part 2? Why (not)?
+
+...
+
+The following function plots a map of SOM stocks for each location, based on the soil output of the model. You need to specify which soils dataframe to use, which output year you want to visualize and the initial DEM of the simulations. 
+```{r}
+plot_SOM_stock_map(soils = soils_2D_tillage_SOM,  # Specify the soils dataframe
+                   year_of_plot = 300,            # Specify for which year you want to calculate the SOM stocks
+                   initial_DEM = dtm_0)           # Specify cell size 
+```
+Q3.2. Describe the pattern of the SOM stocks. Do the patterns match the patterns of tillage erosion? Why is that?
+
+...
+
+
+## 3.2. Transects and profile development
+Let's have a closer look at the soils and their development. We have two options for this: make a transect or catena plot, showing the soil properties along a topographical transect, or plot the temporal development of individual soil profiles, as we have done in part 1 as well.
+
+Let's start with a transect.
+
+```{r}
+transect_plot(soils = soils_2D_tillage_SOM, rows = 20, cols = 0:39, year_plot = 300, variablename = "f_OM", plot_z0 = TRUE)
+```
+
+The transect shows that there has been considerable erosion and deposition, based on the differences between the initial elevation line and the elevation of the soils at timestep 300. There are also differences in SOM fractions for eroded and depositional soils.
+
+Q3.3. Describe the relation between erosion/deposition patterns and the SOM stocks
+
+...
+
+Q3.4. For the next part, we need to select a location that shows a depositional soil and a location that shows an erosional soil. Based on the transect above in row 20, select two columns that display these two types of soils. Keep in mind that the cell size of the DEM is 2.5 meter, so divide the distance along the X axis by 25 to get your desired column number.
+
+...
+
+Now we can plot the development of the erosional and depositional soil, using the function `profile_development()`. Fill in the blanks in the function to make the plots. Explain what values you have used for the different arguments and why.
+
+```{r}
+
+profile_development(soils = soils_2D_tillage_SOM, 
+                    row_plot = 20, 
+                    col_plot = 19, 
+                    years_plot = years_2D_tillage_SOM, 
+                    variablename = "f_OM")
+profile_development(soils = soils_2D_tillage_SOM, 
+                    row_plot = 20, 
+                    col_plot = 10, 
+                    years_plot = years_2D_tillage_SOM, 
+                    variablename = "f_OM")
+profile_development(soils = soils_2D_tillage_SOM, 
+                    row_plot = 20, 
+                    col_plot = 12, 
+                    years_plot = years_2D_tillage_SOM, 
+                    variablename = "f_OM")
+
+```
+Q3.5. Describe the development of both soil profiles. What are the differences and agreements? For the depositional profile, do you see the burial of a paleosol? Why (not)?
+
+...
+
+Feel free to make plots for different rows, columns and transects, to get a feeling for the spatial and temporal patterns of SOM stocks in eroding landscapes. You can also make plots of `elevation_transect_development()` and other analyses we have done in the previous weeks. 
+
+```{r}
+
+```
+
+## 3.3. Quantitative comparison with linear regression 
+So far, we have evaluated the maps qualitatively, by describing the patterns. Let's see if we can also do some quantitative evaluation using linear regression models. With linear regression models, we can quantify linear relationships between two variables. These relationships have the shape of $y=ax+b$. In our case, $x$ is elevation change by tillage and $y$ are the SOM stocks. Check [this](https://jhudatascience.org/tidyversecourse/model.html#linear-modeling) website for an in-depth explanation of linear regression models in R.
+
+We start with a scatter plot of tillage erosion/deposition versus SOM stocks. first, we need to select the layer with tillage erosion at the last timestep. Then, we make a raster object of the SOM stocks using the function `create_SOM_stock_map()`. The data from both maps are collected in a data frame, which is then used for plotting and further analysis.
+
+Run the code below and select the parameters in the `ggplot()` function. 
+
+```{r}
+# create and select maps of outputs at t = 300
+SOM_stocks = create_SOM_stock_map(soils_2D_tillage_SOM, 
+                                  year_of_plot = 300,
+                                  initial_DEM = dtm_0)
+tillage_dz = tillage_2D_tillage_SOM[[30]] # Select the 30th layer, which is output for year 300
+
+# Extract the data from the rasters and save it into a data frame
+TI_SOM = data.frame(tillage_dz[],
+                    SOM_stocks[])
+names(TI_SOM) = c("tillage","SOM_stock")
+
+# Plot the results
+ggplot(TI_SOM, aes(x = tillage, y = SOM_stock)) + 
+  geom_point() + 
+  labs(x = "Elevation change by tillage [m]",
+       y ="SOM stocks [kg/m2]")
+```
+
+Q3.6. Describe the correlation displayed in the graph. 
+
+...
+
+The SOM stocks seem to increase exponentially with the elevation change in tillage. In the current form, the data is not suitable for a linear regression model as there is no clear linear relation between the two variables. However, we can transform the data to make the relationship linear by taking the logarithm of the SOM stocks
+
+```{r}
+# Take the logarithm of the SOM stocks
+TI_SOM = TI_SOM %>%
+  mutate(log_SOM_stock = log(SOM_stock))
+
+# Plot the results and add a linear trend line
+ggplot(TI_SOM, aes(x = tillage, y = log_SOM_stock)) + 
+  geom_point() + 
+   geom_smooth(method = "lm", se=T) + 
+  labs(x = "Elevation change by tillage [m]",
+       y ="log SOM stocks [kg/m2]")
+```
+
+After the data transformation, the relationship between the two variables is much more linear. let's build a linear regression model. For this, we use the function `lm()`, which stands for linear model. In the function, the first argument defines which two variables need to be correlated, in the form of `y~x`. The second argument specifies the data source, in our case the `TI_SOM` data frame. 
+
+The results of the linear model are stored in the object `lm_TI_SOM`. With the function `summary()` we can see the results of the linear model.
+
+```{r}
+# Create the linear model
+lm_TI_SOM = lm(formula = log_SOM_stock ~ tillage, 
+               data = TI_SOM)
+
+# Print the summary
+summary(lm_TI_SOM)
+```
+
+Q3.7. The summary provides a lot of information. Use the explanation from this [link](https://jhudatascience.org/tidyversecourse/model.html#interpreting-the-model) to interpret the model output. Describe the relation between the SOM stocks and elevation changes by tillage. In your answer, mention the coefficients of the linear model, the significance and the variance explained.
+
+...
+
+
+# Part 4: time series and more statistical analysis
+It's possible in Lorica to determine when a certain processes starts or ends. This is useful for tillage, which only starts with agricultural use of the area. This provides the possibility to first run the simulations under 'natural' conditions building up SOM stocks, followed by a period of tillage erosion, where the SOM stocks are redistributed.
+
+In order to do this, we need to make a file that indicates for each year of the simulation whether there is tillage (1) or no tillage (0). This file consists of one column with the number of rows indicating the number of timesteps. Finally, the upper value in the file should indicate the number of entries, which should correspond to the number of run years.
+
+The code below makes such a data frame and stores it in a .txt file. It has 1000 years of no tillage, followed by 200 years of tillage
+
+```{r}
+# create tillage time series
+timeseries = data.frame(till = c(rep(0,1000), rep(1, 200)))
+
+# use the number of entries as column name
+names(timeseries) = length(timeseries$till)
+
+# Write time series into a .txt file
+write_csv(x = timeseries, file = "tillage_timeseries.txt")
+
+```
+
+## 4.1. Simulations with time series for tillage
+Prepare a new Lorica simulation
+
+- Start a new version of Lorica and load `runfile.xml`
+- Select tillage erosion, set the tillage constant to 0.5 and the plough depth to 0.25
+- Select Carbon cycle and use the following parameters
+  - Potential input: 0.13 
+  - humification fraction: 0.13
+  - decomposition young: 0.8
+  - decomposition old: 0.006
+  - depth limitation rates and depth decay constants: 8
+- Deselect all other processes
+- Use `DEM_2D` as input
+- Set the runtime to **1200** years with output every 10 years
+- under `Inputs`, select the checkbox f(t) behind tillage fields [1/-9999]
+- Click in the white box and navigate to the file `tillage_timeseries.txt`. You might need to select `all files` in the dropdown menu at the bottom right
+- Save the runfile under `runfile_2D_TI_SOM_ts` (tillage, som, timeseries)
+- Run the model. This takes a while
+- Change the name of the output folder to `DEM_2D_TI_SOM_ts`
+
+Load the model output into R
+
+```{r}
+source("VisualizationLORICAoutput_functions_practical_v3.R")
+dtm_0 = rast("DEM_2D.asc")
+read_rasters(directory = "DEM_2D_TI_SOM_ts/", scenario_name = "2D_TI_SOM_ts")
+read_soils(directory = "DEM_2D_TI_SOM_ts/", scenario_name = "2D_TI_SOM_ts")
+```
+## 4.2. Qualitative analysis
+Let's start with qualitative evaluation of the results, Make plots of profile development of `f_OM`, using the same rows and columns as in the previous part for the erosional and depositional soil. Make sure that you refer to the right `soils` and `years` objects.  
+
+```{r}
+profile_development(soils = soils_2D_TI_SOM_ts, 
+                    row_plot = 20, 
+                    col_plot = 19, 
+                    years_plot = years_2D_TI_SOM_ts, 
+                    variablename = "f_OM")
+profile_development(soils = soils_2D_TI_SOM_ts, 
+                    row_plot = 20, 
+                    col_plot = 10, 
+                    years_plot = years_2D_TI_SOM_ts, 
+                    variablename = "f_OM")
+```
+Q4.1. Describe how the two soils develop over time. What are the similarities and differences? 
+
+...
+
+Q4.2. How and why does the soil development differ from the simulations in part 3? 
+
+...
+
+We can also plot transects of the simulations. This can help to compare the period of soil development without tillage and the period with tillage. By plotting multiple transects, we can trace the development of catenas in the landscape. Using the same rows and columns as before, make a `transect_plot()` for the years 1000 (end no-tillage period), 1050, 1100, 1150 and 1200 (end tillage period) to see how the catenas change over time. Bonus points if you do this using a for-loop. 
+
+```{r}
+for(y in seq(1000,1200,50))
+{
+  print(transect_plot(soils = soils_2D_TI_SOM_ts, rows = 20, cols = 0:39, year_plot = y, variablename = "f_OM", plot_z0 = T))
+}
+```
+
+Q4.3. Describe how the catena changes through time. Where does the erosion and deposition occur? Are there any remarkable features in the catenas?
+
+
+## 4.3. Quantitative analysis
+We will compare the results from the model run. First, we need to calculate the carbon stocks for each row, column and year combination and store them in a data base. Instead of creating SOM_stock maps and extracting the values, we will do this by manipulating the soils data frame using tidyverse functions. 
+
+```{r}
+# Determine the cell size of each raster layer
+dx = res(dtm_0)[1]
+SOM_stocks = soils_2D_TI_SOM_ts %>%
+  group_by(row, col, t) %>% # group by row, column and timestep
+  summarise(SOM_stock_kg_m2 = sum(YOM_kg, OOM_kg) / dx^2) # for each group, calculate sum of organic matter stocks, and divide it by the surface area of the raster cell to get to units of kg/m2
+SOM_stocks  
+```
+Let's plot the results with a boxplot. We want to show the stocks for every time step, so we can convert the `t` variable to a factor to group the data frame per time step. 
+```{r}
+ggplot(SOM_stocks, aes(x = as.factor(t), y = SOM_stock_kg_m2)) + 
+  geom_boxplot() + 
+  labs(x = "time step", y = "SOM stock [kg/m2]")
+```
+This plot has a poorly readable X axis. This is because there is a large number of levels in the `factor(t)`. It would be better if the x axis was plotted with continuous values instead of factor levels. For this, we can take another approach. We don't convert `t` into a factor. Instead, we add an argument to `geom_boxplot()`, where we say we group the data points into bins of a specified width. In this case, the bins have a width of 10, resembling our outputs from the model. This creates a much better readable graph. 
+
+```{r}
+# Plot the results with boxplots
+ggplot(SOM_stocks, aes(x = t, y = SOM_stock_kg_m2)) + 
+  geom_boxplot(aes(group = cut_width(t, width = 10)))+ 
+  labs(x = "time step", y = "SOM stock [kg/m2]")
+```
+Q4.4. describe the trend in the SOM stocks. Why are the stocks uniform for all time steps below 1000 years and highly heterogeneous for all time steps above 1000 years?
+
+...
+
+Q4.5. Why would the median (dots) in the SOM stocks first decrease and then increase in the period of tillage?
+
+...
+
+We will compare the SOM stocks in between two years using a two-sample *t*-Test. This test determines whether there the mean of two groups are equal or not. These groups could represent SOM stocks from two distinctive years. *t*-Tests work best when the data is normally distributed, but that is not the case for the SOM stocks, as you can see in the following code chunk. 
+
+```{r}
+# Test noramlity. 
+SOM_stocks %>%
+  filter(t == 1200) %>% # filter year 1200
+  ggplot(aes(x = SOM_stock_kg_m2)) +  # create histogram with ggplot
+  geom_histogram()
+```
+Luckily, when we have a lot of observations (>50), the normality assumption becomes less relevant and we can still use the test. We have 40*40=1600 observations for each time step, so we're good. 
+
+For the test, we will use the package `infer`. You may need to install this first. The code below selects data from years 1000 and 1200 and puts them in the function `t_test`. The function puts out the results of the test. Check [this website](https://cran.r-project.org/web/packages/infer/vignettes/t_test.html) for more information on the test and all the theory behind it. What's important for now is the p_value. If this value is smaller than 0.05, the means of the two groups are statistically different. 
+
+```{r}
+library(infer)
+SOM_stocks %>%
+  filter(t %in% c(1000,1200)) %>%
+  t_test(SOM_stock_kg_m2~t)
+```
+Q4.6. What's the p value of the performed t-test? How would you interpret this?
+
+...
+
+Q4.7. Try some more *t*-Tests with values from other years. How do the p values change? Explain how the p values change based on the selected years. Note that you need some level of variation in the data for the test to work. This means that at least one of the selected years has to come from the period with tillage. 
+
+...
+
+```{r}
+library(infer)
+SOM_stocks %>%
+  filter(t %in% c(10,1010)) %>%
+  t_test(SOM_stock_kg_m2~t)
+```
+
+
+
